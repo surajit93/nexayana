@@ -1,8 +1,16 @@
-// src/controllers/astrologyEngine.js
 
 import { getUserKundali, getZodiacCompatibility } from "../models/kundaliModel.js";
 import { getCurrentDate } from "../utils/dateCalc.js";
-
+import {
+  calculatePlanetLongitude,
+  calculateAscendant,
+  getNakshatraForDegree,
+  getPadaForNakshatra,
+  determineDoshas,
+  computeDashas,
+  findYogas,
+  calculatePanchanga
+} from '../models/kundaliModel.js';
 export function getZodiacSign(dob) {
   const date = new Date(dob);
   const month = date.getMonth() + 1;
@@ -51,3 +59,84 @@ export function generateDailyPrediction(zodiacSign) {
   return `Prediction for ${zodiacSign} on ${day}: Great opportunities await if you stay positive.`;
 }
 
+
+// src/controllers/astrologyEngine.js
+
+
+
+/**
+ * Generate full standalone Kundali for given birth profile
+ * @param {Object} profile
+ * @returns {Promise<Object>}
+ */
+export async function generateFullKundali(profile) {
+  const { name, gender, dob, time, place, latitude, longitude, timezone } = profile;
+
+  // 1. Convert DOB and time into Julian day / sidereal time
+  const birthMoment = new Date(`${dob}T${time}${timezone}`);
+
+  // 2. Calculate planetary longitudes
+  const planets = {};
+  ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu'].forEach(body => {
+    const lon = calculatePlanetLongitude(body, birthMoment, latitude, longitude);
+    const nakshatra = getNakshatraForDegree(lon);
+    planets[body] = {
+      sign: nakshatra.sign,
+      degree: lon % 30,
+      nakshatra: nakshatra.name,
+      pada: getPadaForNakshatra(nakshatra, lon),
+      house: null,         // Populated later
+      retrograde: lon.isRetrograde,
+      strength: lon.strength,
+      dignity: lon.dignity
+    };
+  });
+
+  // 3. Ascendant calculation
+  const asc = calculateAscendant(birthMoment, latitude, longitude);
+  planets.ascendant = { sign: asc.sign, degree: asc.degree };
+
+  // 4. Assign houses: whole-sign house system
+  const houses = {};
+  for (let i = 1; i <= 12; i++) {
+    houses[`house${i}`] = ((asc.signIndex + i - 1) % 12) + 1; // sign index to Rashi names
+  }
+  Object.keys(planets).forEach(body => {
+    if (planets[body].house == null) {
+      const signIndex = getSignIndex(planets[body].sign);
+      planets[body].house = ((signIndex - asc.signIndex + 12) % 12) + 1;
+    }
+  });
+
+  // 5. Panchanga details
+  const panchanga = calculatePanchanga(birthMoment, latitude, longitude);
+
+  // 6. Compute Dashas
+  const dashas = computeDashas(birthMoment, planets.Moon);
+
+  // 7. Determine Doshas and Yogas
+  const doshas = determineDoshas(planets, asc);
+  const yogas = findYogas(planets, houses);
+
+  // Output combined Kundali JSON
+  return {
+    userProfile: { name, gender, dob, time, place, coordinates: { latitude, longitude, timezone } },
+    basicDetails: {
+      sunSign: planets.Sun.sign,
+      moonSign: planets.Moon.sign,
+      ascendant: asc.sign,
+      nakshatra: planets.Moon.nakshatra,
+      birthRashi: planets.Moon.sign
+    },
+    planetaryPositions: planets,
+    houses,
+    divisionalCharts: {},    // Optional: stub for D9, D7 charts if implemented
+    doshas,
+    yogas,
+    dashas,
+    panchanga,
+    remedies: [],            // Placeholder: can be rule-based
+    matchMaking: {},         // Placeholder: combine two kundalis later
+    metadata: { generatedAt: new Date().toISOString(), version: "1.0" }
+  };
+}
