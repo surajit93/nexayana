@@ -1,9 +1,11 @@
+// src/controllers/githubApi.js
+
 /**
  * Fetches file paths from a given GitHub repository.
  *
- * @param {string} owner - GitHub username or org.
+ * @param {string} owner - GitHub username or organization.
  * @param {string} repo - Repository name.
- * @param {string} [path=''] - Optional subdirectory path inside repo.
+ * @param {string} [path=''] - Optional subdirectory path inside the repo.
  * @returns {Promise<string[]>} Array of file paths.
  */
 export async function fetchRepoFiles(owner, repo, path = '') {
@@ -27,10 +29,21 @@ export async function fetchRepoFiles(owner, repo, path = '') {
       return [];
     }
 
-    return data.map(file => file.path);
+    // Collect all file paths, and recurse into folders
+    const allFiles = [];
+
+    for (const item of data) {
+      if (item.type === 'file') {
+        allFiles.push(item.path);
+      } else if (item.type === 'dir') {
+        const subFiles = await fetchRepoFiles(owner, repo, item.path);
+        allFiles.push(...subFiles);
+      }
+    }
+
+    return allFiles;
   } catch (err) {
     console.error("GitHub API fetch error:", err.message);
     return [];
   }
 }
-
